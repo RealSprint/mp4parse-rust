@@ -26,12 +26,38 @@ static VIDEO_EME_CENC_MP4: &str = "tests/bipbop_480wp_1001kbps-cenc-video-key1-i
 // note: only the init files are needed for these tests
 static AUDIO_EME_CBCS_MP4: &str = "tests/bipbop_cbcs_audio_init.mp4";
 static VIDEO_EME_CBCS_MP4: &str = "tests/bipbop_cbcs_video_init.mp4";
+static VIDEO_FRAGMENT: &str = "tests/video-1320.mp4";
 static VIDEO_AV1_MP4: &str = "tests/tiny_av1.mp4";
 static IMAGE_AVIF: &str = "av1-avif/testFiles/Microsoft/Monochrome.avif";
 static IMAGE_AVIF_CORRUPT: &str = "tests/bug-1655846.avif";
 static IMAGE_AVIF_CORRUPT_2: &str = "tests/bug-1661347.avif";
 static IMAGE_AVIF_GRID: &str = "av1-avif/testFiles/Microsoft/Summer_in_Tomsk_720p_5x4_grid.avif";
 static AVIF_TEST_DIR: &str = "av1-avif/testFiles";
+
+#[test]
+#[allow(clippy::cognitive_complexity)] // TODO: Consider simplifying this
+fn public_fragment() {
+    let mut fd = File::open(VIDEO_FRAGMENT).expect("Unknown file");
+    let mut buf = Vec::new();
+    fd.read_to_end(&mut buf).expect("File error");
+    let mut c = Cursor::new(&buf);
+    let mut context = mp4::MediaContext::new();
+    mp4::read_mp4(&mut c, &mut context).expect("read_mp4 failed");
+
+    assert_eq!(context.tracks[0].fragment_decode_time.unwrap(), 111600);
+    assert_eq!(context.tracks[0].tfhd.unwrap().base_data_offset, 0);
+    assert_eq!(context.tracks[0].tfhd.unwrap().default_duration, 3600);
+    assert_eq!(context.tracks[0].tfhd.unwrap().default_size, 2456);
+    assert_eq!(context.tracks[0].track_id.unwrap(), 1);
+
+    if let Some(ref trun) = context.tracks[0].trun {
+        assert_eq!(trun.samples_count(), 2);
+        assert_eq!(trun.sample_size(0), 2456);
+        assert_eq!(trun.sample_size(1), 2702);
+    } else {
+        unreachable!()
+    }
+}
 
 // Adapted from https://github.com/GuillaumeGomez/audio-video-metadata/blob/9dff40f565af71d5502e03a2e78ae63df95cfd40/src/metadata.rs#L53
 #[test]

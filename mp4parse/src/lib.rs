@@ -17,7 +17,10 @@ use num_traits::Num;
 use std::convert::{TryFrom, TryInto as _};
 use std::io::Cursor;
 use std::io::{Read, Take};
-use std::ops::{Range, RangeFrom};
+use std::{
+    fmt::Debug,
+    ops::{Range, RangeFrom},
+};
 
 #[macro_use]
 mod macros;
@@ -270,6 +273,67 @@ pub struct TrackHeaderBox {
     pub width: u32,
     pub height: u32,
     pub matrix: Matrix,
+}
+
+/// Track header box 'tfhd'
+#[derive(Debug, Clone, Copy)]
+pub struct TrackFragmentHeaderBox {
+    track_id: u32,
+    pub flags: u32,
+    pub base_data_offset: u64,
+    pub description_index: u32,
+    pub default_duration: u32,
+    pub default_size: u32,
+    pub default_flags: u32,
+}
+
+/// Track fragment run box 'trun'
+#[derive(Debug)]
+pub struct TrackFragmentRunBox {
+    flags: u32,
+    data_offset: u32,
+    first_sample_flags: u32,
+    pub data: TryVec<u32>,
+}
+
+impl TrackFragmentRunBox {
+    const FLAG_SAMPLE_DURATION: u32 = 0x100;
+    const FLAG_SAMPLE_SIZE: u32 = 0x200;
+    const FLAG_SAMPLE_FLAGS: u32 = 0x400;
+    const FLAG_SAMPLE_CTS: u32 = 0x800;
+
+    pub fn fields_count(flags: u32) -> usize {
+        let mut n = 0;
+        if flags & Self::FLAG_SAMPLE_DURATION != 0 {
+            n += 1
+        }
+        if flags & Self::FLAG_SAMPLE_SIZE != 0 {
+            n += 1
+        }
+        if flags & Self::FLAG_SAMPLE_FLAGS != 0 {
+            n += 1
+        }
+        if flags & Self::FLAG_SAMPLE_CTS != 0 {
+            n += 1
+        }
+        n
+    }
+
+    fn sample_size_index(flags: u32) -> usize {
+        if (flags & Self::FLAG_SAMPLE_DURATION) != 0 {
+            1
+        } else {
+            0
+        }
+    }
+
+    pub fn samples_count(&self) -> usize {
+        self.data.len() / Self::fields_count(self.flags)
+    }
+
+    pub fn sample_size(&self, index: usize) -> u32 {
+        self.data[index * Self::fields_count(self.flags) + Self::sample_size_index(self.flags)]
+    }
 }
 
 /// Edit list box 'elst'
@@ -734,6 +798,7 @@ pub struct MediaContext {
     pub mvex: Option<MovieExtendsBox>,
     pub psshs: TryVec<ProtectionSystemSpecificHeaderBox>,
     pub userdata: Option<Result<UserdataBox>>,
+    pub mdat: Option<MediaDataBox>,
 }
 
 impl MediaContext {
@@ -756,10 +821,19 @@ impl AvifContext {
 
 /// A Media Data Box
 /// See ISO 14496-12:2015 § 8.1.1
-struct MediaDataBox {
+pub struct MediaDataBox {
     /// Offset of `data` from the beginning of the file. See ConstructionMethod::File
     offset: u64,
     data: TryVec<u8>,
+}
+
+impl Debug for MediaDataBox {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MediaDataBox")
+            .field("offset", &self.offset)
+            .field("data length", &self.data.len())
+            .finish()
+    }
 }
 
 impl MediaDataBox {
@@ -996,8 +1070,11 @@ pub struct Track {
     pub media_time: Option<TrackScaledTime<u64>>,
     pub timescale: Option<TrackTimeScale<u64>>,
     pub duration: Option<TrackScaledTime<u64>>,
+    pub fragment_decode_time: Option<u64>,
     pub track_id: Option<u32>,
     pub tkhd: Option<TrackHeaderBox>, // TODO(kinetik): find a nicer way to export this.
+    pub tfhd: Option<TrackFragmentHeaderBox>,
+    pub trun: Option<TrackFragmentRunBox>,
     pub stsd: Option<SampleDescriptionBox>,
     pub stts: Option<TimeToSampleBox>,
     pub stsc: Option<SampleToChunkBox>,
@@ -1621,9 +1698,13 @@ fn read_iloc<T: Read>(src: &mut BMFFBox<T>) -> Result<TryVec<ItemLocationBoxItem
 pub fn read_mp4<T: Read>(f: &mut T, context: &mut MediaContext) -> Result<()> {
     let mut found_ftyp = false;
     let mut found_moov = false;
+    let mut found_moof = false;
+    let mut found_mdat = false;
+    let mut f = OffsetReader::new(f);
+
     // TODO(kinetik): Top-level parsing should handle zero-sized boxes
     // rather than throwing an error.
-    let mut iter = BoxIter::new(f);
+    let mut iter = BoxIter::new(&mut f);
     while let Some(mut b) = iter.next_box()? {
         // box ordering: ftyp before any variable length box (inc. moov),
         // but may not be first box in file if file signatures etc. present
@@ -1650,6 +1731,16 @@ pub fn read_mp4<T: Read>(f: &mut T, context: &mut MediaContext) -> Result<()> {
                 read_moov(&mut b, context)?;
                 found_moov = true;
             }
+            BoxType::MovieFragmentBox => {
+                read_moof(&mut b, context)?;
+                found_moof = true;
+            }
+            BoxType::MediaDataBox => {
+                let offset = b.offset();
+                let data = b.read_into_try_vec()?;
+                context.mdat = Some(MediaDataBox { offset, data });
+                found_mdat = true;
+            }
             _ => skip_box_content(&mut b)?,
         };
         check_parser_state!(b.content);
@@ -1663,12 +1754,22 @@ pub fn read_mp4<T: Read>(f: &mut T, context: &mut MediaContext) -> Result<()> {
                 }
             );
         }
+        if found_moof {
+            debug!(
+                "found moof {}",
+                if found_mdat {
+                    "and mdat"
+                } else {
+                    "but no mdat"
+                }
+            );
+        }
     }
 
     // XXX(kinetik): This isn't perfect, as a "moov" with no contents is
     // treated as okay but we haven't found anything useful.  Needs more
     // thought for clearer behaviour here.
-    if found_moov {
+    if found_moov || found_moof {
         Ok(())
     } else {
         Err(Error::NoMoov)
@@ -1712,6 +1813,123 @@ fn read_moov<T: Read>(f: &mut BMFFBox<T>, context: &mut MediaContext) -> Result<
                 let udta = read_udta(&mut b);
                 debug!("{:?}", udta);
                 context.userdata = Some(udta);
+            }
+            _ => skip_box_content(&mut b)?,
+        };
+        check_parser_state!(b.content);
+    }
+    Ok(())
+}
+
+fn read_traf<T: Read>(f: &mut BMFFBox<T>, track: &mut Track) -> Result<()> {
+    let mut iter = f.box_iter();
+    while let Some(mut b) = iter.next_box()? {
+        match b.head.name {
+            BoxType::TrackFragmentHeaderBox => {
+                let tfhd = read_tfhd(&mut b)?;
+                track.track_id = Some(tfhd.track_id);
+                track.tfhd = Some(tfhd);
+            }
+            BoxType::TrackFragmentDecodeTimeBox => read_tfdt(&mut b, track)?,
+            BoxType::TrackFragmentRunBox => {
+                track.trun = Some(read_trun(&mut b)?);
+            }
+            _ => skip_box_content(&mut b)?,
+        };
+        check_parser_state!(b.content);
+    }
+    Ok(())
+}
+
+fn read_tfhd<T: Read>(src: &mut BMFFBox<T>) -> Result<TrackFragmentHeaderBox> {
+    let (_, flags) = read_fullbox_extra(src)?;
+
+    let mut base_data_offset: u64 = 0;
+    let mut description_index = 0;
+    let mut default_duration = 0;
+    let mut default_size = 0;
+    let mut default_flags = 0;
+    let track_id = be_u32(src)?;
+
+    if (flags & 0x000001) != 0 {
+        base_data_offset = be_u64(src)?;
+    }
+    if (flags & 0x000002) != 0 {
+        description_index = be_u32(src)?;
+    }
+    if (flags & 0x000008) != 0 {
+        default_duration = be_u32(src)?;
+    }
+    if (flags & 0x000010) != 0 {
+        default_size = be_u32(src)?;
+    }
+    if (flags & 0x000020) != 0 {
+        default_flags = be_u32(src)?;
+    }
+
+    Ok(TrackFragmentHeaderBox {
+        track_id,
+        flags,
+        base_data_offset,
+        description_index,
+        default_duration,
+        default_size,
+        default_flags,
+    })
+}
+
+fn read_tfdt<T: Read>(src: &mut BMFFBox<T>, track: &mut Track) -> Result<()> {
+    let (version, _) = read_fullbox_extra(src)?;
+
+    track.fragment_decode_time = Some(match version {
+        1 => be_u64(src)?,
+        0 => u64::from(be_u32(src)?),
+        _ => return Err(Error::InvalidData("unhandled tfdt version")),
+    });
+
+    Ok(())
+}
+
+fn read_trun<T: Read>(src: &mut BMFFBox<T>) -> Result<TrackFragmentRunBox> {
+    const FLAG_DATA_OFFSET: u32 = 0x01;
+    const FLAG_FIRST_SAMPLE_FLAGS: u32 = 0x04;
+
+    let (_, flags) = read_fullbox_extra(src)?;
+    let mut data_offset = 0;
+    let mut first_sample_flags = 0;
+
+    let sample_count = be_u32(src)?.to_usize();
+    let n = sample_count * TrackFragmentRunBox::fields_count(flags);
+
+    if (flags & FLAG_DATA_OFFSET) != 0 {
+        data_offset = be_u32(src)?;
+    }
+
+    if (flags & FLAG_FIRST_SAMPLE_FLAGS) != 0 {
+        first_sample_flags = be_u32(src)?;
+    }
+
+    let mut data = TryVec::<u32>::with_capacity(n)?;
+    for _ in 0..n {
+        data.push(be_u32(src)?)?;
+    }
+
+    Ok(TrackFragmentRunBox {
+        flags,
+        data_offset,
+        first_sample_flags,
+        data,
+    })
+}
+
+fn read_moof<T: Read>(f: &mut BMFFBox<T>, context: &mut MediaContext) -> Result<()> {
+    let mut iter = f.box_iter();
+    while let Some(mut b) = iter.next_box()? {
+        match b.head.name {
+            BoxType::TrackFragmentBox => {
+                let mut track = Track::new(context.tracks.len());
+                read_traf(&mut b, &mut track)?;
+                context.tracks.push(track)?;
             }
             _ => skip_box_content(&mut b)?,
         };
