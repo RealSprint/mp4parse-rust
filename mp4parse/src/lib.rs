@@ -303,20 +303,11 @@ impl TrackFragmentRunBox {
     const FLAG_SAMPLE_CTS: u32 = 0x800;
 
     pub fn fields_count(flags: u32) -> usize {
-        let mut n = 0;
-        if flags & Self::FLAG_SAMPLE_DURATION != 0 {
-            n += 1
-        }
-        if flags & Self::FLAG_SAMPLE_SIZE != 0 {
-            n += 1
-        }
-        if flags & Self::FLAG_SAMPLE_FLAGS != 0 {
-            n += 1
-        }
-        if flags & Self::FLAG_SAMPLE_CTS != 0 {
-            n += 1
-        }
-        n
+        ((flags & Self::FLAG_SAMPLE_DURATION)
+            | (flags & Self::FLAG_SAMPLE_SIZE)
+            | (flags & Self::FLAG_SAMPLE_FLAGS)
+            | (flags & Self::FLAG_SAMPLE_CTS))
+            .count_ones() as usize
     }
 
     fn sample_size_index(flags: u32) -> usize {
@@ -327,12 +318,28 @@ impl TrackFragmentRunBox {
         }
     }
 
+    fn sample_composition_time_offset_index(flags: u32) -> usize {
+        ((flags & Self::FLAG_SAMPLE_DURATION)
+            | (flags & Self::FLAG_SAMPLE_SIZE)
+            | (flags & Self::FLAG_SAMPLE_FLAGS))
+            .count_ones() as usize
+    }
+
     pub fn samples_count(&self) -> usize {
         self.data.len() / Self::fields_count(self.flags)
     }
 
     pub fn sample_size(&self, index: usize) -> u32 {
         self.data[index * Self::fields_count(self.flags) + Self::sample_size_index(self.flags)]
+    }
+
+    pub fn sample_composition_time_offset(&self, index: usize) -> i32 {
+        self.data[index * Self::fields_count(self.flags)
+            + Self::sample_composition_time_offset_index(self.flags)] as i32
+    }
+
+    pub fn has_composition_time_offset(&self) -> bool {
+        self.flags & Self::FLAG_SAMPLE_CTS != 0
     }
 }
 
