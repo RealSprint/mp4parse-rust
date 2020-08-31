@@ -837,6 +837,10 @@ impl Debug for MediaDataBox {
 }
 
 impl MediaDataBox {
+    pub fn data(&self) -> &[u8] {
+        &self.data
+    }
+
     /// Check whether the beginning of `extent` is within the bounds of the `MediaDataBox`.
     /// We assume extents to not cross box boundaries. If so, this will cause an error
     /// in `read_extent`.
