@@ -338,6 +338,10 @@ impl TrackFragmentRunBox {
             + Self::sample_composition_time_offset_index(self.flags)] as i32
     }
 
+    pub fn has_sample_size(&self) -> bool {
+        self.flags & Self::FLAG_SAMPLE_SIZE != 0
+    }
+
     pub fn has_composition_time_offset(&self) -> bool {
         self.flags & Self::FLAG_SAMPLE_CTS != 0
     }
