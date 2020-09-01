@@ -291,7 +291,7 @@ pub struct TrackFragmentHeaderBox {
 #[derive(Debug)]
 pub struct TrackFragmentRunBox {
     flags: u32,
-    data_offset: u32,
+    pub data_offset: u32,
     first_sample_flags: u32,
     pub data: TryVec<u32>,
 }
