@@ -884,7 +884,7 @@ impl MediaDataBox {
 
     /// Copy the range specified by `extent` to the end of `buf` or return an error if the range
     /// is not fully contained within `MediaDataBox`.
-    fn read_extent(&mut self, extent: &ExtentRange, buf: &mut TryVec<u8>) -> Result<()> {
+    pub fn read_extent(&mut self, extent: &ExtentRange, buf: &mut TryVec<u8>) -> Result<()> {
         let start_offset = extent
             .start()
             .checked_sub(self.offset)
@@ -996,7 +996,7 @@ struct ItemLocationBoxExtent {
 }
 
 #[derive(Clone, Debug)]
-enum ExtentRange {
+pub enum ExtentRange {
     WithLength(Range<u64>),
     ToEnd(RangeFrom<u64>),
 }
