@@ -870,7 +870,7 @@ impl MediaDataBox {
     /// Check whether the beginning of `extent` is within the bounds of the `MediaDataBox`.
     /// We assume extents to not cross box boundaries. If so, this will cause an error
     /// in `read_extent`.
-    fn contains_extent(&self, extent: &ExtentRange) -> bool {
+    pub fn contains_extent(&self, extent: &ExtentRange) -> bool {
         if self.offset <= extent.start() {
             let start_offset = extent.start() - self.offset;
             start_offset < self.data.len().to_u64()
