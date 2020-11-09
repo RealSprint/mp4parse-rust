@@ -813,6 +813,7 @@ pub struct MediaContext {
     pub psshs: TryVec<ProtectionSystemSpecificHeaderBox>,
     pub userdata: Option<Result<UserdataBox>>,
     pub mdat: Option<MediaDataBox>,
+    pub moof: Option<MoofBox>,
 }
 
 impl MediaContext {
@@ -843,6 +844,11 @@ struct AvifMeta {
     properties: TryVec<AssociatedProperty>,
     primary_item_id: u32,
     iloc_items: TryVec<ItemLocationBoxItem>,
+}
+
+#[derive(Debug, Default)]
+pub struct MoofBox {
+    pub offset: u64,
 }
 
 /// A Media Data Box
@@ -1991,7 +1997,9 @@ pub fn read_mp4<T: Read>(f: &mut T, context: &mut MediaContext) -> Result<()> {
                 found_moov = true;
             }
             BoxType::MovieFragmentBox => {
+                let offset = b.offset();
                 read_moof(&mut b, context)?;
+                context.moof = Some(MoofBox { offset });
                 found_moof = true;
             }
             BoxType::MediaDataBox => {

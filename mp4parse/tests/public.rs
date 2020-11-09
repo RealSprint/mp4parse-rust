@@ -51,6 +51,7 @@ fn public_fragment() {
     assert_eq!(context.tracks[0].tfhd.unwrap().default_duration, 3600);
     assert_eq!(context.tracks[0].tfhd.unwrap().default_size, 2456);
     assert_eq!(context.tracks[0].track_id.unwrap(), 1);
+    assert_eq!(context.moof.unwrap().offset, 8);
 
     if let Some(ref trun) = context.tracks[0].trun {
         assert_eq!(trun.samples_count(), 2);
@@ -77,6 +78,7 @@ fn public_fragment_with_cts() {
     assert_eq!(context.tracks[0].tfhd.unwrap().default_duration, 3600);
     assert_eq!(context.tracks[0].tfhd.unwrap().default_size, 1510);
     assert_eq!(context.tracks[0].track_id.unwrap(), 1);
+    assert_eq!(context.moof.unwrap().offset, 8);
 
     if let Some(ref trun) = context.tracks[0].trun {
         assert_eq!(trun.samples_count(), 2);
