@@ -28,6 +28,8 @@ static AUDIO_EME_CBCS_MP4: &str = "tests/bipbop_cbcs_audio_init.mp4";
 static VIDEO_EME_CBCS_MP4: &str = "tests/bipbop_cbcs_video_init.mp4";
 static VIDEO_FRAGMENT: &str = "tests/video-1320.mp4";
 static VIDEO_FRAGMENT_WITH_CTS: &str = "tests/video-7760.mp4";
+static AUDIO_FRAGMENT: &str = "tests/audio-1.mp4";
+static AUDIO_FRAGMENT_WITH_ONLY_ONE_SAMPLE: &str = "tests/audio-one-sample-in-fragment.mp4";
 static VIDEO_AV1_MP4: &str = "tests/tiny_av1.mp4";
 static IMAGE_AVIF: &str = "av1-avif/testFiles/Microsoft/Monochrome.avif";
 static IMAGE_AVIF_EXTENTS: &str = "tests/kodim-extents.avif";
@@ -54,10 +56,80 @@ fn public_fragment() {
     assert_eq!(context.moof.unwrap().offset, 8);
 
     if let Some(ref trun) = context.tracks[0].trun {
-        assert_eq!(trun.samples_count(), 2);
+        assert_eq!(trun.sample_count(), 2);
         assert_eq!(trun.has_composition_time_offset(), false);
         assert_eq!(trun.sample_size(0), 2456);
         assert_eq!(trun.sample_size(1), 2702);
+    } else {
+        unreachable!()
+    }
+}
+
+#[test]
+#[allow(clippy::cognitive_complexity)] // TODO: Consider simplifying this
+fn public_audio_fragment() {
+    let mut fd = File::open(AUDIO_FRAGMENT).expect("Unknown file");
+    let mut buf = Vec::new();
+    fd.read_to_end(&mut buf).expect("File error");
+    let mut c = Cursor::new(&buf);
+    let mut context = mp4::MediaContext::new();
+    mp4::read_mp4(&mut c, &mut context).expect("read_mp4 failed");
+
+    assert_eq!(context.tracks[0].fragment_decode_time.unwrap(), 20477115360);
+    assert_eq!(context.tracks[0].tfhd.unwrap().base_data_offset, 0);
+    assert_eq!(context.tracks[0].tfhd.unwrap().default_duration, 1056);
+    assert_eq!(context.tracks[0].tfhd.unwrap().default_size, 326);
+    assert_eq!(context.tracks[0].track_id.unwrap(), 1);
+    assert_eq!(context.moof.unwrap().offset, 8);
+
+    if let Some(ref trun) = context.tracks[0].trun {
+        assert_eq!(trun.sample_count(), 6);
+        assert_eq!(trun.has_sample_duration(), true);
+        assert_eq!(trun.has_composition_time_offset(), false);
+        assert_eq!(trun.sample_size(0), 326);
+        assert_eq!(trun.sample_duration(0), 1056);
+
+        assert_eq!(trun.sample_size(1), 339);
+        assert_eq!(trun.sample_duration(1), 1008);
+
+        assert_eq!(trun.sample_size(2), 356);
+        assert_eq!(trun.sample_duration(2), 1008);
+
+        assert_eq!(trun.sample_size(3), 346);
+        assert_eq!(trun.sample_duration(3), 1056);
+
+        assert_eq!(trun.sample_size(4), 357);
+        assert_eq!(trun.sample_duration(4), 1008);
+
+        assert_eq!(trun.sample_size(5), 331);
+        assert_eq!(trun.sample_duration(5), 1008);
+    } else {
+        unreachable!()
+    }
+}
+
+#[test]
+#[allow(clippy::cognitive_complexity)] // TODO: Consider simplifying this
+fn public_audio_fragment_with_one_sample() {
+    let mut fd = File::open(AUDIO_FRAGMENT_WITH_ONLY_ONE_SAMPLE).expect("Unknown file");
+    let mut buf = Vec::new();
+    fd.read_to_end(&mut buf).expect("File error");
+    let mut c = Cursor::new(&buf);
+    let mut context = mp4::MediaContext::new();
+    mp4::read_mp4(&mut c, &mut context).expect("read_mp4 failed");
+
+    assert_eq!(context.tracks[0].fragment_decode_time.unwrap(), 20944478208);
+    assert_eq!(context.tracks[0].tfhd.unwrap().base_data_offset, 0);
+    assert_eq!(context.tracks[0].tfhd.unwrap().default_duration, 1008);
+    assert_eq!(context.tracks[0].tfhd.unwrap().default_size, 423);
+    assert_eq!(context.tracks[0].track_id.unwrap(), 1);
+    assert_eq!(context.moof.unwrap().offset, 8);
+
+    if let Some(ref trun) = context.tracks[0].trun {
+        assert_eq!(trun.sample_count(), 1);
+        assert_eq!(trun.has_sample_duration(), false);
+        assert_eq!(trun.has_composition_time_offset(), false);
+        assert_eq!(trun.has_sample_size(), false);
     } else {
         unreachable!()
     }
@@ -81,7 +153,7 @@ fn public_fragment_with_cts() {
     assert_eq!(context.moof.unwrap().offset, 8);
 
     if let Some(ref trun) = context.tracks[0].trun {
-        assert_eq!(trun.samples_count(), 2);
+        assert_eq!(trun.sample_count(), 2);
         assert_eq!(trun.has_composition_time_offset(), true);
         assert_eq!(trun.sample_composition_time_offset(0), -3600);
         assert_eq!(trun.sample_composition_time_offset(1), 7200);

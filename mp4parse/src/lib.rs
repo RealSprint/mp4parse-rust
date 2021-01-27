@@ -296,6 +296,7 @@ pub struct TrackFragmentRunBox {
     flags: u32,
     pub data_offset: u32,
     first_sample_flags: u32,
+    pub sample_count: usize,
     pub data: TryVec<u32>,
 }
 
@@ -328,17 +329,25 @@ impl TrackFragmentRunBox {
             .count_ones() as usize
     }
 
-    pub fn samples_count(&self) -> usize {
-        self.data.len() / Self::fields_count(self.flags)
+    pub fn sample_count(&self) -> usize {
+        self.sample_count as usize
     }
 
     pub fn sample_size(&self, index: usize) -> u32 {
         self.data[index * Self::fields_count(self.flags) + Self::sample_size_index(self.flags)]
     }
 
+    pub fn sample_duration(&self, index: usize) -> u32 {
+        self.data[index * Self::fields_count(self.flags)]
+    }
+
     pub fn sample_composition_time_offset(&self, index: usize) -> i32 {
         self.data[index * Self::fields_count(self.flags)
             + Self::sample_composition_time_offset_index(self.flags)] as i32
+    }
+
+    pub fn has_sample_duration(&self) -> bool {
+        self.flags & Self::FLAG_SAMPLE_DURATION != 0
     }
 
     pub fn has_sample_size(&self) -> bool {
@@ -2186,6 +2195,7 @@ fn read_trun<T: Read>(src: &mut BMFFBox<T>) -> Result<TrackFragmentRunBox> {
         data_offset,
         first_sample_flags,
         data,
+        sample_count,
     })
 }
 
